@@ -1,7 +1,6 @@
 FROM php:8.2-fpm
 
-#Install Dependencies
-
+# Install system dependencies and PHP extensions in one layer
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
@@ -10,29 +9,32 @@ RUN apt-get update && apt-get install -y \
     unzip \
     git \
     curl \
-    supervisor
+    supervisor \
+    && docker-php-ext-install pdo pdo_pgsql zip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-#Install php extensions
-RUN docker-php-ext-install pdo pdo_pgsql zip
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-#Install Composer
-
-COPY --from=composer:2  /usr/bin/composer  /usr/bin/composer
-
-# Set Working directory
+# Set working directory
 WORKDIR /var/www
 
-#Add Laravel App
+# Copy only composer files first to leverage Docker cache
+COPY composer.json composer.lock ./
 
+# Install PHP dependencies
+RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
+
+# Copy the rest of the application
 COPY . .
 
-RUN composer install
+# Re-run composer to optimize autoload and run scripts
+RUN composer install --optimize-autoloader --no-dev
 
-#Setup Laravel 
-
+# Laravel setup commands
 RUN php artisan config:clear && php artisan route:clear
 
-# Copy supervisor config for queue worker and scheduler
+# Uncomment if using supervisor
 # COPY docker/supervisord/supervisord.conf /etc/supervisor/supervisord.conf
 
 # CMD ["/usr/bin/supervisord"]
